@@ -4,8 +4,8 @@ services:
       context: .
     container_name: ynab-mcp
     restart: unless-stopped
-    expose:
-      - "8000"
+    ports:
+      - "${YNAB_MCP_BIND_ADDR:-0.0.0.0}:${YNAB_MCP_PORT:-5090}:8000"
     environment:
       MCP_HOST: 0.0.0.0
       MCP_PORT: 8000
@@ -14,19 +14,3 @@ services:
     env_file:
       - path: ./ynab.env
         required: false
-
-  ynab-auth:
-    image: ghcr.io/brannengh/jwt-proxy:latest
-    container_name: ynab-auth
-    restart: unless-stopped
-    ports:
-      - "${YNAB_MCP_BIND_ADDR:-0.0.0.0}:${YNAB_MCP_PORT:-5090}:8080"
-    environment:
-      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:?set OIDC_ISSUER_URL in .env}
-      MCP_UPSTREAM_URL: http://ynab-mcp:8000
-      MCP_PUBLIC_URL: ${YNAB_MCP_PUBLIC_URL:-}
-      MCP_RESOURCE_URL: ${YNAB_MCP_RESOURCE_URL:-}
-      JWT_REQUIRED_AZP: ${JWT_REQUIRED_AZP-}
-      JWT_AUDIENCE: ${YNAB_JWT_AUDIENCE:-}
-    depends_on:
-      - ynab-mcp
