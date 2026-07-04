@@ -1,0 +1,14 @@
+# Secrets / local env
+.env
+*.env
+!*.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS / editor cruft
+.DS_Store
