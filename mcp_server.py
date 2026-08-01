@@ -6,18 +6,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 BASE_DIR = Path(__file__).resolve().parent
 SCRIPT = BASE_DIR / "scripts" / "ynab.py"
 DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("MCP_SCRIPT_TIMEOUT_SECONDS", "90"))
 
-mcp = FastMCP(
-    "ynab",
-    host=os.environ.get("MCP_HOST", "0.0.0.0"),
-    port=int(os.environ.get("MCP_PORT", "8000")),
-)
+mcp = MCPServer("ynab")
 
 
 def run_helper(args: list[str], timeout_seconds: int | None = None) -> Any:
@@ -601,4 +597,12 @@ def ynab_import_transactions(
 
 
 if __name__ == "__main__":
-    mcp.run(transport=os.environ.get("MCP_TRANSPORT", "streamable-http"))
+    transport = os.environ.get("MCP_TRANSPORT", "streamable-http")
+    if transport == "stdio":
+        mcp.run(transport=transport)
+    else:
+        mcp.run(
+            transport=transport,
+            host=os.environ.get("MCP_HOST", "0.0.0.0"),
+            port=int(os.environ.get("MCP_PORT", "8000")),
+        )
