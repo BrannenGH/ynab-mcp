@@ -25,6 +25,27 @@ ACCOUNT_TYPES = (
     "medicalDebt",
     "otherDebt",
 )
+
+CREATABLE_ACCOUNT_TYPES = (
+    "checking",
+    "savings",
+    "cash",
+    "creditCard",
+    "otherAsset",
+    "otherLiability",
+)
+
+# CANNOT NATIVELY CREATE VIA THE API,
+# MAP TO OTHER LIABILITY INSTEAD
+ACCOUNT_TYPE_CREATE_ALTERNATIVES = {
+    "lineOfCredit": "otherLiability",
+    "mortgage": "otherLiability",
+    "autoLoan": "otherLiability",
+    "studentLoan": "otherLiability",
+    "personalLoan": "otherLiability",
+    "medicalDebt": "otherLiability",
+    "otherDebt": "otherLiability",
+}
 CATEGORY_GOAL_TYPES = (
     "TB",
     "TBD",
@@ -391,6 +412,39 @@ def main():
     elif args.cmd == "account":
         result = request_json(f"/plans/{plan}/accounts/{args.account_id}")
     elif args.cmd == "create-account":
+        if args.type not in CREATABLE_ACCOUNT_TYPES:
+            alternative = ACCOUNT_TYPE_CREATE_ALTERNATIVES.get(args.type, "otherLiability")
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "invalid_account_type_for_creation",
+                        "message": (
+                            f"'{args.type}' is a valid YNAB account type, but it is not "
+                            "one YNAB's account-creation API accepts. POST "
+                            "/budgets/{budget_id}/accounts (the SaveAccount schema; see "
+                            "https://api.ynab.com/v1 -> Accounts) only allows type to be "
+                            f"one of: {', '.join(CREATABLE_ACCOUNT_TYPES)}. "
+                            f"'{args.type}' shows up when reading existing accounts and is "
+                            "selectable in the YNAB app, but the public API has no way to "
+                            "set it at creation, and no update/PATCH endpoint for accounts "
+                            "exists to change it afterward either."
+                        ),
+                        "requested_type": args.type,
+                        "suggested_type": alternative,
+                        "next_step": (
+                            f"Create the account with --type {alternative} (use "
+                            "otherAsset instead if this account tracks money owed TO "
+                            "you, e.g. accounts receivable), then open it in the YNAB "
+                            f"web or mobile app and change its type to '{args.type}' "
+                            "from Account Settings."
+                        ),
+                    },
+                    indent=2,
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
         result = request_json(
             f"/plans/{plan}/accounts",
             method="POST",

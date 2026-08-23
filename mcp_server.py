@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.types import ToolAnnotations
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -14,6 +15,25 @@ SCRIPT = BASE_DIR / "scripts" / "ynab.py"
 DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("MCP_SCRIPT_TIMEOUT_SECONDS", "90"))
 
 mcp = MCPServer("ynab")
+
+# Hint groups surfaced to MCP clients so they can decide when to prompt for
+# confirmation. destructiveHint marks calls that overwrite or remove existing data
+# (updates, deletes) as opposed to calls that only add new data (creates, import).
+READ_ONLY_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+)
+CREATE_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True
+)
+IMPORT_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True
+)
+UPDATE_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=True
+)
+DELETE_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=True
+)
 
 
 def run_helper(args: list[str], timeout_seconds: int | None = None) -> Any:
@@ -75,19 +95,19 @@ def add_plan(args: list[str], plan_id: str | None) -> None:
     add_optional(args, "--plan-id", plan_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_get_user(timeout_seconds: int | None = None) -> Any:
     """Get the authenticated YNAB user."""
     return run_helper(["user"], timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_list_plans(timeout_seconds: int | None = None) -> Any:
     """List YNAB plans."""
     return run_helper(["plans"], timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_get_plan(
     plan_id: str | None = None,
     timeout_seconds: int | None = None,
@@ -98,7 +118,7 @@ def ynab_get_plan(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_list_accounts(
     plan_id: str | None = None,
     timeout_seconds: int | None = None,
@@ -109,7 +129,7 @@ def ynab_list_accounts(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_get_account(
     account_id: str,
     plan_id: str | None = None,
@@ -121,7 +141,7 @@ def ynab_get_account(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATE_ANNOTATIONS)
 def ynab_create_account(
     name: str,
     account_type: str,
@@ -129,7 +149,17 @@ def ynab_create_account(
     plan_id: str | None = None,
     timeout_seconds: int | None = None,
 ) -> Any:
-    """Create one unlinked YNAB account. Balance is in milliunits; $12.34 is 12340 and debt is negative."""
+    """Create one unlinked YNAB account. Balance is in milliunits; $12.34 is 12340 and debt is negative.
+
+    The account_type must be one of: checking, savings, cash, creditCard, otherAsset,
+    otherLiability. These are the only values YNAB's account-creation API (POST
+    /budgets/{budget_id}/accounts, the SaveAccount schema -- see
+    https://api.ynab.com/v1 -> Accounts) accepts. lineOfCredit and the debt subtypes
+    (mortgage, autoLoan, studentLoan, personalLoan, medicalDebt, otherDebt) are real
+    YNAB account types you'll see on existing accounts and can pick in the app, but
+    the public API can't set them at creation, and there is no update/PATCH endpoint
+    for accounts to change one afterward either. 
+    """
     args = [
         "create-account",
         "--name",
@@ -144,7 +174,7 @@ def ynab_create_account(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_list_category_groups(
     plan_id: str | None = None,
     timeout_seconds: int | None = None,
@@ -155,7 +185,7 @@ def ynab_list_category_groups(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_get_category_group(
     category_group_id: str,
     plan_id: str | None = None,
@@ -167,7 +197,7 @@ def ynab_get_category_group(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATE_ANNOTATIONS)
 def ynab_create_category_group(
     name: str,
     hidden: bool | None = None,
@@ -181,7 +211,7 @@ def ynab_create_category_group(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=UPDATE_ANNOTATIONS)
 def ynab_update_category_group(
     category_group_id: str,
     name: str | None = None,
@@ -197,7 +227,7 @@ def ynab_update_category_group(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_list_categories(
     plan_id: str | None = None,
     last_knowledge_of_server: int | None = None,
@@ -210,7 +240,7 @@ def ynab_list_categories(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_get_category(
     category_id: str,
     plan_id: str | None = None,
@@ -250,7 +280,7 @@ def add_category_options(
         args.append("--clear-goal")
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATE_ANNOTATIONS)
 def ynab_create_category(
     name: str,
     category_group_id: str | None = None,
@@ -291,7 +321,7 @@ def ynab_create_category(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=UPDATE_ANNOTATIONS)
 def ynab_update_category(
     category_id: str,
     name: str | None = None,
@@ -343,7 +373,7 @@ def ynab_update_category(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_get_month_category(
     month: str,
     category_id: str,
@@ -356,7 +386,7 @@ def ynab_get_month_category(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=UPDATE_ANNOTATIONS)
 def ynab_update_month_category_budget(
     month: str,
     category_id: str,
@@ -370,7 +400,7 @@ def ynab_update_month_category_budget(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_list_payees(
     plan_id: str | None = None,
     timeout_seconds: int | None = None,
@@ -381,7 +411,7 @@ def ynab_list_payees(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_get_payee(
     payee_id: str,
     plan_id: str | None = None,
@@ -393,7 +423,7 @@ def ynab_get_payee(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_list_months(
     plan_id: str | None = None,
     timeout_seconds: int | None = None,
@@ -404,7 +434,7 @@ def ynab_list_months(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_get_month(
     month: str,
     plan_id: str | None = None,
@@ -416,7 +446,7 @@ def ynab_get_month(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_list_transactions(
     since_date: str | None = None,
     until_date: str | None = None,
@@ -443,7 +473,7 @@ def ynab_list_transactions(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
 def ynab_get_transaction(
     transaction_id: str,
     plan_id: str | None = None,
@@ -482,7 +512,7 @@ def add_transaction_options(
     add_optional(args, "--import-id", import_id)
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATE_ANNOTATIONS)
 def ynab_create_transaction(
     account_id: str,
     date: str,
@@ -518,7 +548,7 @@ def ynab_create_transaction(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=UPDATE_ANNOTATIONS)
 def ynab_update_transaction(
     transaction_id: str,
     account_id: str | None = None,
@@ -555,7 +585,7 @@ def ynab_update_transaction(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=UPDATE_ANNOTATIONS)
 def ynab_update_transactions(
     updates: list[dict[str, Any]],
     plan_id: str | None = None,
@@ -573,7 +603,7 @@ def ynab_update_transactions(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=DELETE_ANNOTATIONS)
 def ynab_delete_transaction(
     transaction_id: str,
     plan_id: str | None = None,
@@ -585,7 +615,7 @@ def ynab_delete_transaction(
     return run_helper(args, timeout_seconds)
 
 
-@mcp.tool()
+@mcp.tool(annotations=IMPORT_ANNOTATIONS)
 def ynab_import_transactions(
     plan_id: str | None = None,
     timeout_seconds: int | None = None,
