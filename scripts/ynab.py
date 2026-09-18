@@ -111,6 +111,40 @@ def plan_id(args):
     return getattr(args, "plan_id", None) or os.environ.get("YNAB_PLAN_ID", "default")
 
 
+SUBTRANSACTION_FIELDS = ("amount", "payee_id", "payee_name", "category_id", "memo")
+
+
+def validate_subtransactions(subs):
+    if not isinstance(subs, list) or not subs:
+        raise SystemExit("subtransactions must be a non-empty JSON array.")
+    normalized = []
+    for index, sub in enumerate(subs):
+        if not isinstance(sub, dict):
+            raise SystemExit(f"subtransactions[{index}] must be an object.")
+        if not isinstance(sub.get("amount"), int):
+            raise SystemExit(
+                f"subtransactions[{index}] must include an integer 'amount' in milliunits."
+            )
+        unknown = set(sub) - set(SUBTRANSACTION_FIELDS)
+        if unknown:
+            raise SystemExit(
+                f"subtransactions[{index}] has unknown fields: {', '.join(sorted(unknown))}"
+            )
+        normalized.append({key: sub[key] for key in SUBTRANSACTION_FIELDS if key in sub})
+    return normalized
+
+
+def parse_subtransactions_arg(args):
+    raw = getattr(args, "subtransactions_json", None)
+    if raw is None:
+        return None
+    try:
+        subs = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise SystemExit(f"Invalid --subtransactions-json: {error}") from error
+    return validate_subtransactions(subs)
+
+
 def transaction_payload(args, partial=False):
     fields = (
         "account_id",
@@ -130,8 +164,13 @@ def transaction_payload(args, partial=False):
         for field in fields
         if getattr(args, field, None) is not None
     }
+    subtransactions = parse_subtransactions_arg(args)
+    if subtransactions is not None:
+        payload["subtransactions"] = subtransactions
     if not partial:
-        missing = [field for field in ("account_id", "date", "amount") if field not in payload]
+        missing = [field for field in ("account_id", "date") if field not in payload]
+        if "amount" not in payload and subtransactions is None:
+            missing.append("amount")
         if missing:
             raise SystemExit(f"Missing required fields: {', '.join(missing)}")
     elif not payload:
@@ -205,9 +244,12 @@ def add_transaction_fields(parser, required=False):
     parser.add_argument("--date", required=required, help="ISO date: YYYY-MM-DD")
     parser.add_argument(
         "--amount",
-        required=required,
         type=int,
-        help="Amount in milliunits; $12.34 is 12340 and an outflow is negative.",
+        help=(
+            "Amount in milliunits; $12.34 is 12340 and an outflow is negative. "
+            "Required on creation unless --subtransactions-json is given, since a "
+            "split's parent amount is derived from the sum of its subtransactions."
+        ),
     )
     parser.add_argument("--payee-id")
     parser.add_argument("--payee-name")
@@ -220,6 +262,19 @@ def add_transaction_fields(parser, required=False):
         choices=("red", "orange", "yellow", "green", "blue", "purple", "none"),
     )
     parser.add_argument("--import-id")
+    parser.add_argument(
+        "--subtransactions-json",
+        help=(
+            "JSON array making this a split transaction. Each element is an "
+            'object with "amount" (required, milliunits) plus any of payee_id, '
+            "payee_name, category_id, memo, e.g. "
+            '\'[{"amount": -5000, "category_id": "cat-1"}, '
+            '{"amount": -2500, "category_id": "cat-2"}]\'. Leave category_id unset '
+            "on the parent transaction when splitting. Once a transaction is a "
+            "split, its top-level amount and date can no longer be changed via "
+            "update -- only the subtransactions' contents can."
+        ),
+    )
 
 
 def add_category_group_fields(parser, required=False):
@@ -384,7 +439,9 @@ def main():
             'JSON array of updates, each an object with "id" (the '
             'transaction_id) plus the fields to change, e.g. '
             '\'[{"id": "txn-1", "category_id": "cat-1"}, '
-            '{"id": "txn-2", "memo": "fixed"}]\'.'
+            '{"id": "txn-2", "memo": "fixed"}]\'. An update may also include '
+            '"subtransactions" (see update-transaction --subtransactions-json) '
+            "to make that transaction a split."
         ),
     )
     add_plan_argument(update_many)
@@ -599,6 +656,8 @@ def main():
         for update in updates:
             if not isinstance(update, dict) or "id" not in update:
                 raise SystemExit('Each update must be an object with an "id" field.')
+            if "subtransactions" in update:
+                update["subtransactions"] = validate_subtransactions(update["subtransactions"])
         result = request_json(
             f"/plans/{plan}/transactions",
             method="PATCH",

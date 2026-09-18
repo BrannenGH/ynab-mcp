@@ -498,6 +498,7 @@ def add_transaction_options(
     approved: bool | None = None,
     flag_color: str | None = None,
     import_id: str | None = None,
+    subtransactions: list[dict[str, Any]] | None = None,
 ) -> None:
     add_optional(args, "--account-id", account_id)
     add_optional(args, "--date", date)
@@ -510,13 +511,15 @@ def add_transaction_options(
     add_optional_bool(args, "--approved", approved)
     add_optional(args, "--flag-color", flag_color)
     add_optional(args, "--import-id", import_id)
+    if subtransactions is not None:
+        args.extend(["--subtransactions-json", json.dumps(subtransactions)])
 
 
 @mcp.tool(annotations=CREATE_ANNOTATIONS)
 def ynab_create_transaction(
     account_id: str,
     date: str,
-    amount: int,
+    amount: int | None = None,
     payee_id: str | None = None,
     payee_name: str | None = None,
     category_id: str | None = None,
@@ -525,10 +528,20 @@ def ynab_create_transaction(
     approved: bool | None = None,
     flag_color: str | None = None,
     import_id: str | None = None,
+    subtransactions: list[dict[str, Any]] | None = None,
     plan_id: str | None = None,
     timeout_seconds: int | None = None,
 ) -> Any:
-    """Create one transaction. Amount is in milliunits; outflows are negative."""
+    """Create one transaction, optionally as a split. Amount is in milliunits; outflows are negative.
+
+    amount is required unless subtransactions is given -- a split's parent
+    amount is derived from the sum of its subtransactions. To create a split,
+    leave category_id unset (only subtransactions carry a category) and pass
+    subtransactions: a list of objects each with "amount" (required,
+    milliunits) plus any of payee_id, payee_name, category_id, memo. The sum
+    of subtransaction amounts must equal the parent amount when both are
+    given; the API rejects the call otherwise and the error is returned as-is.
+    """
     args = ["create-transaction"]
     add_transaction_options(
         args,
@@ -543,6 +556,7 @@ def ynab_create_transaction(
         approved,
         flag_color,
         import_id,
+        subtransactions,
     )
     add_plan(args, plan_id)
     return run_helper(args, timeout_seconds)
@@ -562,10 +576,19 @@ def ynab_update_transaction(
     approved: bool | None = None,
     flag_color: str | None = None,
     import_id: str | None = None,
+    subtransactions: list[dict[str, Any]] | None = None,
     plan_id: str | None = None,
     timeout_seconds: int | None = None,
 ) -> Any:
-    """Update one transaction."""
+    """Update one transaction.
+
+    Pass subtransactions (a list of objects each with "amount", required,
+    plus any of payee_id, payee_name, category_id, memo) to make the
+    transaction a split, or to change an existing split's line items.
+    Once a transaction is a split, the API no longer allows changing its
+    top-level amount or date via update -- only the subtransactions'
+    contents can change.
+    """
     args = ["update-transaction", transaction_id]
     add_transaction_options(
         args,
@@ -580,6 +603,7 @@ def ynab_update_transaction(
         approved,
         flag_color,
         import_id,
+        subtransactions,
     )
     add_plan(args, plan_id)
     return run_helper(args, timeout_seconds)
@@ -595,8 +619,14 @@ def ynab_update_transactions(
 
     Each item in updates must be an object with "id" (the transaction_id)
     plus any of the fields to change: account_id, date, amount, payee_id,
-    payee_name, category_id, memo, cleared, approved, flag_color. Amount is
-    in milliunits; outflows are negative.
+    payee_name, category_id, memo, cleared, approved, flag_color, and
+    subtransactions. Amount is in milliunits; outflows are negative.
+    subtransactions is a list of objects each with "amount" (required,
+    milliunits) plus any of payee_id, payee_name, category_id, memo; setting
+    it makes that transaction a split (or updates an existing split's line
+    items). Once a transaction is a split, the API no longer allows changing
+    its top-level amount or date via update -- only the subtransactions'
+    contents can change.
     """
     args = ["update-transactions", "--updates-json", json.dumps(updates)]
     add_plan(args, plan_id)
